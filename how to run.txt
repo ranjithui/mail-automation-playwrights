@@ -12,7 +12,7 @@ Open a terminal in this folder and run:
     npm install
     npm run setup
     npm run dev
-
+-------------------------------
 Then open:
 
     http://localhost:5173
