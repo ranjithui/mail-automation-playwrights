@@ -1,0 +1,88 @@
+# Production-shaped stack: Postgres + Redis + API + Worker + Web.
+# Local development does NOT require this file - see `how to run.txt`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mailflow
+      POSTGRES_PASSWORD: mailflow
+      POSTGRES_DB: mailflow
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mailflow-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: node:22-bookworm
+    container_name: mailflow-api
+    working_dir: /app
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://mailflow:mailflow@postgres:5432/mailflow?schema=public
+      REDIS_URL: redis://redis:6379
+      API_PORT: "4000"
+      APP_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_API_KEY: ${AI_API_KEY:-}
+    command: sh -c "npm install && npm run prisma:generate && npm run prisma:push && npm run db:seed && npm run start:api"
+    volumes: ["./:/app"]
+    ports: ["4000:4000"]
+
+  worker:
+    image: mcr.microsoft.com/playwright:v1.49.1-jammy
+    container_name: mailflow-worker
+    working_dir: /app
+    depends_on: [api]
+    environment:
+      NODE_ENV: production
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://mailflow:mailflow@postgres:5432/mailflow?schema=public
+      REDIS_URL: redis://redis:6379
+      GMAIL_DRIVER: ${GMAIL_DRIVER:-simulation}
+      PLAYWRIGHT_HEADLESS: "true"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_API_KEY: ${AI_API_KEY:-}
+    command: sh -c "npm install && npm run prisma:generate && npm run start:worker"
+    volumes: ["./:/app"]
+
+  web:
+    image: node:22-bookworm
+    container_name: mailflow-web
+    working_dir: /app
+    depends_on: [api]
+    environment:
+      VITE_API_URL: http://localhost:4000
+    command: sh -c "npm install && npm run dev:web -- --host 0.0.0.0"
+    volumes: ["./:/app"]
+    ports: ["5173:5173"]
+
+volumes:
+  pgdata:
+  redisdata:

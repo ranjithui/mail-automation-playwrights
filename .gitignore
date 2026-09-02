@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+prisma/schema.prisma
+prisma/data/
+storage/attachments/*
+storage/screenshots/*
+storage/sessions/*
+!storage/**/.gitkeep
+.vite/
+coverage/
+playwright-report/
+test-results/

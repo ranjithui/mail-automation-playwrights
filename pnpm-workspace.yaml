@@ -1,0 +1,5 @@
+# The repository also works with pnpm. `npm` is the default because it needs no
+# extra global install. If you prefer pnpm: `pnpm install` then the same scripts.
+packages:
+  - 'apps/*'
+  - 'packages/*'

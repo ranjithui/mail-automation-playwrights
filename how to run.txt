@@ -1,0 +1,243 @@
+===============================================================================
+ MAILFLOW - ENTERPRISE MAIL AUTOMATION SAAS
+ How to run
+===============================================================================
+
+-------------------------------------------------------------------------------
+ QUICK START  (three commands, nothing else to install)
+-------------------------------------------------------------------------------
+
+Open a terminal in this folder and run:
+
+    npm install
+    npm run setup
+    npm run dev
+
+Then open:
+
+    http://localhost:5173
+
+
+-------------------------------------------------------------------------------
+ DEFAULT LINK AND PASSWORD
+-------------------------------------------------------------------------------
+
+    LINK      http://localhost:5173
+
+    EMAIL     admin@mailflow.local
+    PASSWORD  Admin@12345
+
+The sign-in screen has a "Fill demo credentials" button that types these for
+you.
+
+Four more seeded accounts exist so you can see how role permissions behave.
+They all use the SAME password (Admin@12345):
+
+    admin@mailflow.local          OWNER     full control
+    admin.user@mailflow.local     ADMIN     members, settings, AI config
+    manager@mailflow.local        MANAGER   start / pause / stop campaigns
+    user@mailflow.local           USER      create and edit, send replies
+    viewer@mailflow.local         VIEWER    read only
+
+Other useful URLs while it is running:
+
+    http://localhost:5173              web app
+    http://localhost:4000/api/health   API health check
+    npm run prisma:studio              database browser (opens on :5555)
+
+To change the seeded owner credentials, edit SEED_OWNER_EMAIL and
+SEED_OWNER_PASSWORD in .env, then run:  npm run db:reset
+
+
+-------------------------------------------------------------------------------
+ WHAT `npm run dev` STARTS
+-------------------------------------------------------------------------------
+
+Three processes at once, colour-coded in the terminal:
+
+    API      http://localhost:4000    REST + WebSocket
+    WORKER   (no port)                queue consumer, browser automation, AI
+    WEB      http://localhost:5173    React + Vite
+
+Stop everything with Ctrl+C.
+
+If port 4000 or 5173 is already taken, change API_PORT / WEB_PORT in .env.
+
+
+-------------------------------------------------------------------------------
+ FIRST FIVE MINUTES - SEE THE WHOLE PIPELINE RUN
+-------------------------------------------------------------------------------
+
+The seeder creates a workspace with 3 mailboxes, 5 templates, 45 contacts and
+a ready-to-go 4-step campaign.
+
+  1. Sign in and open  Campaigns
+  2. Open "SaaS Outreach - Q3" and press  Start
+  3. Watch the live monitor: the progress bar, sent counter and current action
+     update over the WebSocket as the worker sends
+  4. Open  Automation > Running jobs  to see each email as an individual job
+  5. Open  Inbox  after a minute or two. Simulated prospects reply with pricing
+     questions, meeting requests, out-of-office notices, opt-outs and bounces
+  6. Open any reply. The AI panel shows intent, priority, sentiment and a
+     summary. Press  Generate AI reply  for a drafted response
+  7. Look back at the campaign: contacts who replied are marked REPLIED and
+     their remaining follow-ups are already CANCELLED
+
+No real email is sent. See "Sending real email" below.
+
+
+-------------------------------------------------------------------------------
+ WHY IT WORKS WITHOUT DOCKER, POSTGRES OR REDIS
+-------------------------------------------------------------------------------
+
+The architecture is exactly as specified (PostgreSQL + Prisma, Redis + BullMQ,
+Playwright, AI provider abstraction). Each of those has a zero-install fallback
+so the project runs on a clean machine, and switching to the production
+component is a one-line change in .env:
+
+  DATABASE      SQLite by default.
+                Set DATABASE_PROVIDER=postgresql + DATABASE_URL for Postgres.
+                The same Prisma models run on both.
+
+  QUEUE         Database-backed durable queue by default.
+                Set REDIS_URL=redis://localhost:6379 to switch to BullMQ.
+                The job ledger stays the source of truth either way, so
+                retries, worker recovery and campaign resume behave the same.
+
+  MAILBOX       Simulation driver by default: the full send / thread-reply /
+                inbox / AI pipeline runs against an in-process mailbox.
+                Set GMAIL_DRIVER=playwright to drive a real Chromium.
+
+  AI            Local rule-based provider by default: no API key, nothing
+                leaves your machine, and intent detection, summaries and reply
+                drafting all work. Switch provider in Settings > AI.
+
+Everything else - auth, RBAC, workspaces, sequences, idempotency, suppression,
+bounce handling, analytics, WebSockets - is the real implementation in every
+configuration.
+
+
+-------------------------------------------------------------------------------
+ SENDING REAL EMAIL  (optional)
+-------------------------------------------------------------------------------
+
+Only do this with a mailbox you are authorised to send from, and read
+SECURITY.md first.
+
+  1. Install the browser:      npm run playwright:install
+  2. In .env set:              GMAIL_DRIVER=playwright
+                               PLAYWRIGHT_HEADLESS=false
+  3. Restart:                  npm run dev
+  4. Email accounts > Add mailbox. Enter the address and display name exactly
+     as they should appear on outgoing mail.
+  5. Press Connect. A Chromium window opens on Gmail.
+     Sign in YOURSELF in that window, including any 2FA. The platform never
+     types credentials and never sees your password.
+     It waits up to 5 minutes for you to finish, then marks the mailbox
+     CONNECTED on its own - you do not need to press Connect again.
+     If you sign into a different account than the one configured, a warning is
+     logged, because mail would otherwise send from the wrong address.
+  6. Set PLAYWRIGHT_HEADLESS=true and restart. The saved session is reused, so
+     no window opens again.
+  7. When the session eventually expires the mailbox is flagged
+     SESSION_EXPIRED, automation stops for it, and you get a notification to
+     reconnect. Repeat steps 2-6 to re-authorise.
+
+  The session lives in storage/sessions/<accountId>. Deleting that folder
+  forces a fresh sign-in. Press Disconnect first so the browser releases it.
+
+Before pointing a real mailbox at a campaign, raise the seeded delays: the demo
+campaign uses 6-14 seconds between sends so it visibly moves. Production
+defaults are 30-60 seconds. Keep the daily limit inside your provider's policy.
+
+
+-------------------------------------------------------------------------------
+ USING POSTGRES + REDIS  (optional)
+-------------------------------------------------------------------------------
+
+With Docker:
+
+    docker compose up
+
+That starts postgres, redis, api, worker and web together.
+
+Without Docker, install Postgres and Redis locally, then in .env:
+
+    DATABASE_PROVIDER=postgresql
+    DATABASE_URL="postgresql://mailflow:mailflow@localhost:5432/mailflow?schema=public"
+    REDIS_URL=redis://localhost:6379
+
+and run:
+
+    npm run prisma:generate
+    npm run prisma:push
+    npm run db:seed
+    npm run dev
+
+
+-------------------------------------------------------------------------------
+ ALL COMMANDS
+-------------------------------------------------------------------------------
+
+    npm run setup             one-time bootstrap (.env, database, seed data)
+    npm run dev               start API + worker + web
+    npm run dev:api           API only
+    npm run dev:worker        worker only
+    npm run dev:web           web only
+    npm test                  unit tests (37 tests)
+    npm run typecheck         TypeScript check across the monorepo
+    npm run build             production build of the web app
+    npm run db:seed           re-seed demo data
+    npm run db:reset          wipe and rebuild the database
+    npm run prisma:studio     browse the database in a GUI
+    npm run playwright:install  download Chromium for the real Gmail driver
+
+
+-------------------------------------------------------------------------------
+ TROUBLESHOOTING
+-------------------------------------------------------------------------------
+
+"EADDRINUSE :::4000"
+    Another process holds the port. Change API_PORT in .env, or stop it:
+        Windows:  netstat -ano | findstr :4000    then  taskkill /PID <pid> /F
+
+Login says "Incorrect email or password"
+    The database was not seeded. Run:  npm run db:seed
+
+The campaign starts but nothing sends
+    Check the sending window. The seeded campaign only sends Mon-Fri,
+    09:30-17:30 Asia/Kolkata. Either wait, or open the campaign, press Edit,
+    and widen the window and days on the Schedule step.
+
+Nothing appears in the Inbox
+    Replies are simulated with a 20-240 second delay. Press "Sync mailboxes"
+    in the inbox sidebar, or wait for the automatic sync (every 45 seconds).
+
+"Live"/"Offline" indicator stuck on Offline
+    The WebSocket could not reach the API. Confirm the API process is running
+    and that http://localhost:4000/api/health returns JSON.
+
+Prisma errors after editing the schema
+    prisma/schema.prisma is GENERATED. Edit prisma/schema.template.prisma
+    instead, then run:  npm run prisma:generate && npm run prisma:push
+
+Reset everything and start clean
+    npm run db:reset
+
+
+-------------------------------------------------------------------------------
+ DOCUMENTATION
+-------------------------------------------------------------------------------
+
+    README.md          overview and feature map
+    ARCHITECTURE.md    how the pieces fit together and why
+    DATABASE.md        every model, and the SQLite/Postgres portability rules
+    API.md             every endpoint
+    PLAYWRIGHT.md      the Gmail automation layer and its selector strategy
+    AI.md              provider abstraction, prompts, guardrails, privacy
+    INBOX.md           sync, attribution, classification, real-time updates
+    SECURITY.md        authentication, isolation, encryption, safe use
+    DEPLOYMENT.md      running it in production
+    MIGRATION.md       moving off the Apps Script + Sheets system
+
+===============================================================================

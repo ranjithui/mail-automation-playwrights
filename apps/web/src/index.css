@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens.
+ *
+ * Data-dense enterprise dashboard: navy primary, amber reserved for the single
+ * highest-intent action on a screen, and semantic status colours that pair a
+ * hue with a low-chroma background so a badge reads at 11px. Every value is
+ * defined in both themes - nothing gets its only definition inside a media
+ * query - and all text pairs clear 4.5:1 against its own surface.
+ */
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --surface: 0 0% 100%;
+    --elevated: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 35%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 226 71% 40%;
+
+    --primary: 226 71% 40%;
+    --primary-foreground: 0 0% 100%;
+    --primary-muted: 226 71% 95%;
+
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 0 0% 100%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 26 83% 14%;
+
+    --success: 160 84% 30%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 152 76% 94%;
+
+    --warning: 32 95% 38%;
+    --warning-foreground: 0 0% 100%;
+    --warning-muted: 48 96% 92%;
+
+    --danger: 0 72% 45%;
+    --danger-foreground: 0 0% 100%;
+    --danger-muted: 0 86% 96%;
+
+    --info: 217 91% 45%;
+    --info-muted: 214 95% 95%;
+
+    --chart-1: 226 71% 45%;
+    --chart-2: 187 72% 38%;
+    --chart-3: 38 92% 48%;
+    --chart-4: 262 62% 55%;
+    --chart-5: 160 70% 36%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 213 31% 91%;
+    --surface: 222 40% 11%;
+    --elevated: 217 33% 14%;
+
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 68%;
+
+    --border: 215 28% 20%;
+    --input: 215 28% 22%;
+    --ring: 217 91% 60%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 8%;
+    --primary-muted: 226 55% 20%;
+
+    --secondary: 213 94% 68%;
+    --secondary-foreground: 222 47% 8%;
+
+    --accent: 38 92% 55%;
+    --accent-foreground: 26 83% 10%;
+
+    --success: 158 64% 45%;
+    --success-foreground: 222 47% 8%;
+    --success-muted: 160 60% 16%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 47% 8%;
+    --warning-muted: 32 60% 18%;
+
+    --danger: 0 84% 65%;
+    --danger-foreground: 222 47% 8%;
+    --danger-muted: 0 55% 20%;
+
+    --info: 213 94% 68%;
+    --info-muted: 217 50% 20%;
+
+    --chart-1: 217 91% 62%;
+    --chart-2: 187 78% 52%;
+    --chart-3: 38 92% 58%;
+    --chart-4: 262 70% 68%;
+    --chart-5: 158 64% 48%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  /* Visible focus for every interactive element, never `outline: none`. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: hsl(var(--border));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.45);
+  }
+
+  /* Respect the OS reduced-motion preference across the whole app. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-border bg-surface shadow-card;
+  }
+
+  .card-header {
+    @apply flex items-start justify-between gap-4 border-b border-border px-5 py-4;
+  }
+
+  .card-title {
+    @apply text-sm font-semibold tracking-tight text-foreground;
+  }
+
+  .card-subtitle {
+    @apply text-xs text-muted-foreground;
+  }
+
+  /* Dense enterprise table: 36px rows, sticky header, hover row highlight. */
+  .data-table {
+    @apply w-full border-collapse text-left text-[13px];
+  }
+  .data-table thead th {
+    @apply sticky top-0 z-10 whitespace-nowrap border-b border-border bg-muted/70 px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur;
+  }
+  .data-table tbody td {
+    @apply border-b border-border/70 px-3 py-2 align-middle;
+  }
+  .data-table tbody tr {
+    @apply transition-colors duration-150;
+  }
+  .data-table tbody tr:hover {
+    @apply bg-muted/50;
+  }
+
+  .num {
+    @apply font-mono tabular-nums;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-muted;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, hsl(var(--foreground) / 0.06), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+
+  /* Rendered email bodies come from templates and mailboxes: contain them. */
+  .email-body {
+    @apply text-[13.5px] leading-relaxed text-foreground;
+  }
+  .email-body p {
+    @apply my-2;
+  }
+  .email-body a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .email-body blockquote {
+    @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .email-body img {
+    @apply max-w-full;
+  }
+  .email-body table {
+    @apply block max-w-full overflow-x-auto;
+  }
+}
