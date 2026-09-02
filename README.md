@@ -130,12 +130,16 @@ campaigns, follow-ups, inbox, AI, safety and intelligence, analytics,
 migration, and production concerns (tests, Docker, security hardening,
 documentation).
 
+How work flows through the system and through the repo is documented in
+[WORKFLOW.md](./WORKFLOW.md); the process around it - phases, environments,
+quality gates, release and rollback - is in [SDLC.md](./SDLC.md).
+
 ---
 
 ## Testing
 
 ```bash
-npm test          # 37 unit tests
+npm test          # 48 unit tests
 npm run typecheck # strict TypeScript across every package and app
 ```
 
