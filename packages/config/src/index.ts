@@ -41,6 +41,16 @@ const schema = z.object({
    * so a job is always failed before it looks abandoned.
    */
   JOB_TIMEOUT_MS: z.coerce.number().int().min(30_000).default(8 * 60_000),
+  /**
+   * Workspaces this worker may run jobs for, comma separated.
+   *
+   * Empty - the default - means all of them, which is what a single all-in-one
+   * install wants. It starts to matter once the browsers live on the operators'
+   * own machines: a mailbox's Chromium profile exists on exactly one of them,
+   * so a worker that claimed a send for someone else's workspace would reach
+   * for a profile it does not have and fail that job on their behalf.
+   */
+  WORKER_WORKSPACES: z.string().default(''),
 
   JWT_SECRET: z.string().min(8).default('dev-only-jwt-secret-change-me'),
   SESSION_SECRET: z.string().min(8).default('dev-only-session-secret-change-me'),
@@ -54,6 +64,15 @@ const schema = z.object({
   API_PORT: z.coerce.number().int().default(4000),
   WEB_PORT: z.coerce.number().int().default(5173),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
+  /**
+   * Directory holding the built dashboard, served by the API process itself.
+   *
+   * Empty in development, where Vite serves the SPA on its own port and proxies
+   * /api to this one. Set it in production so a single origin answers both: the
+   * auth cookies are SameSite=Lax, so a dashboard on another host never sends
+   * them and every call after an apparently successful sign-in returns 401.
+   */
+  WEB_DIST_DIR: z.string().default(''),
 
   GMAIL_DRIVER: z.enum(['simulation', 'playwright']).default('simulation'),
   /**
@@ -106,6 +125,8 @@ export const env = {
   isProduction: raw.NODE_ENV === 'production',
   isDevelopment: raw.NODE_ENV === 'development',
   corsOrigins: raw.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+  workerWorkspaces: raw.WORKER_WORKSPACES.split(',').map((s) => s.trim()).filter(Boolean),
+  webDistDir: raw.WEB_DIST_DIR ? absolute(raw.WEB_DIST_DIR) : '',
   storageDir: absolute(raw.STORAGE_DIR),
   screenshotDir: absolute(raw.SCREENSHOT_DIR),
   sessionDir: absolute(raw.PLAYWRIGHT_STORAGE_DIR),

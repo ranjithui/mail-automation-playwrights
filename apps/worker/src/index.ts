@@ -53,8 +53,19 @@ function instrument(name: QueueName, handler: JobHandler): JobHandler {
  * Housekeeping cadence. These jobs are self-rescheduling via the ledger, so
  * they survive restarts without an external cron.
  */
+/**
+ * The workspaces this worker owns, as a Prisma filter.
+ *
+ * Undefined when WORKER_WORKSPACES is unset, which leaves every query
+ * unfiltered - one all-in-one install still runs everything, as before.
+ */
+const scope = env.workerWorkspaces.length ? { in: env.workerWorkspaces } : undefined;
+
 async function scheduleMaintenance() {
-  const workspaces = await prisma.workspace.findMany({ select: { id: true } });
+  const workspaces = await prisma.workspace.findMany({
+    where: scope ? { id: scope } : undefined,
+    select: { id: true },
+  });
   const now = Date.now();
 
   // Automatic polling is opt-in. When it is off, a mailbox is only ever opened
@@ -62,7 +73,7 @@ async function scheduleMaintenance() {
   // makes the browser driver predictable to sit next to.
   if (env.INBOX_SYNC_INTERVAL_MS > 0) {
     const mailboxes = await prisma.emailAccount.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', ...(scope ? { workspaceId: scope } : {}) },
       select: { id: true, workspaceId: true, email: true },
     });
 
@@ -122,6 +133,11 @@ async function scheduleMaintenance() {
 async function main() {
   log.info(`worker ${workerId} starting`);
   log.info(`queue=${driverName()}  mailbox=${env.GMAIL_DRIVER}  ai=${env.AI_PROVIDER}  db=${env.DATABASE_PROVIDER}`);
+  log.info(
+    env.workerWorkspaces.length
+      ? `scoped to ${env.workerWorkspaces.length} workspace(s): ${env.workerWorkspaces.join(', ')}`
+      : 'serving every workspace in the database',
+  );
 
   if (env.GMAIL_DRIVER === 'simulation') {
     log.info('simulation mailbox driver active - no real email is sent. Set GMAIL_DRIVER=playwright to drive Gmail.');

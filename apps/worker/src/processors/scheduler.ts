@@ -5,7 +5,7 @@
  * itself on a fixed cadence for as long as a campaign is RUNNING, so progress
  * survives a restart without any external cron.
  */
-import { createLogger } from '@mail/config';
+import { createLogger, env } from '@mail/config';
 import { prisma } from '@mail/database';
 import { enqueue, type JobRecord } from '@mail/queue';
 import { dispatchDueSteps, logActivity, notify } from '@mail/core';
@@ -113,7 +113,12 @@ export async function processScheduler(job: JobRecord) {
 /** Bootstraps one scheduler job per RUNNING campaign after a worker restart. */
 export async function bootstrapSchedulers() {
   const running = await prisma.campaign.findMany({
-    where: { status: 'RUNNING' },
+    // This worker's workspaces only: resuming a campaign it cannot send for
+    // queues work that fails on whichever machine lacks that browser profile.
+    where: {
+      status: 'RUNNING',
+      ...(env.workerWorkspaces.length ? { workspaceId: { in: env.workerWorkspaces } } : {}),
+    },
     select: { id: true, name: true, workspaceId: true },
   });
 

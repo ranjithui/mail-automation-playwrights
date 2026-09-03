@@ -341,6 +341,12 @@ class DatabaseDispatcher implements Dispatcher {
             runAt: { lte: new Date() },
             // Never re-claim something this worker is already running.
             id: { notIn: [...this.inFlight] },
+            // Only this worker's workspaces, when it has been given a list.
+            // Claiming is atomic, so sharing a database is safe by itself -
+            // but safe is not the same as correct here: a send only works on
+            // the machine holding that mailbox's browser profile, so taking
+            // another workspace's job means failing it on its owner's behalf.
+            ...(env.workerWorkspaces.length ? { workspaceId: { in: env.workerWorkspaces } } : {}),
           },
           orderBy: [{ priority: 'desc' }, { runAt: 'asc' }],
           take: free,
@@ -455,6 +461,11 @@ export function getDispatcher(): Dispatcher {
 }
 
 export async function startWorkers(handlers: Partial<Record<QueueName, JobHandler>>, workerId: string) {
+  // Redis hands jobs out by queue name and knows nothing about workspaces, so
+  // the scope would be quietly ignored rather than enforced. Say so instead.
+  if (env.workerWorkspaces.length && env.useRedis) {
+    log.warn('WORKER_WORKSPACES is ignored by the redis driver - unset REDIS_URL to scope this worker');
+  }
   await getDispatcher().start(handlers, workerId);
 }
 

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -29,8 +31,9 @@ export function createApp() {
   app.set('trust proxy', 1);
   app.use(
     helmet({
-      // The API serves JSON and authorised file downloads only; the SPA is
-      // served by Vite (dev) or a static host (prod), so CSP lives there.
+      // Left off deliberately. The dashboard is a Vite bundle with inline
+      // module preloads, and a default policy blocks it outright - the app
+      // loads to a blank page with the reason only in the console.
       contentSecurityPolicy: false,
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
@@ -110,6 +113,45 @@ export function createApp() {
   app.use('/api/migration', migrationRouter);
 
   app.use('/api', (req, _res, next) => next(AppError.notFound(`Route ${req.method} ${req.path}`, 'ROUTE_NOT_FOUND')));
+
+  // ----------------------------------------------------------- dashboard
+  //
+  // In production this process serves the built SPA as well as the API, so
+  // both live on one origin. That is not tidiness: the auth cookies are
+  // SameSite=Lax, so a dashboard on a different host never sends them - the
+  // sign-in call succeeds, sets its cookies, and every request after it comes
+  // back 401. Same origin also means no CORS list to keep in step with the
+  // deployment's URL, and a WebSocket that needs no separate address.
+  //
+  // Registered after the API routes and before the error middleware, so /api
+  // still 404s as JSON rather than being handed the HTML shell.
+  if (env.webDistDir && fs.existsSync(path.join(env.webDistDir, 'index.html'))) {
+    const shell = path.join(env.webDistDir, 'index.html');
+
+    app.use(
+      express.static(env.webDistDir, {
+        index: false,
+        setHeaders(res, filePath) {
+          // Vite fingerprints everything under /assets, so those may be cached
+          // forever. index.html must not be, or a deploy stays invisible until
+          // each browser's cache expires.
+          if (filePath.startsWith(path.join(env.webDistDir, 'assets'))) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else {
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      }),
+    );
+
+    // Client-side routing: any remaining GET is a dashboard route, so hand it
+    // the shell and let React resolve it. Anything else is a genuine 404.
+    app.get('*', (_req, res) => res.sendFile(shell));
+    log.info(`serving the dashboard from ${env.webDistDir}`);
+  } else if (env.webDistDir) {
+    log.warn(`WEB_DIST_DIR=${env.webDistDir} has no index.html - build the dashboard first (npm run build --workspace @mail/web)`);
+  }
+
   app.use(errorMiddleware);
 
   log.debug('express application constructed');

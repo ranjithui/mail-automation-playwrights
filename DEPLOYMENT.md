@@ -25,6 +25,127 @@ Three deployable units plus two stores:
 request volume — one worker can serve several mailboxes, but a mailbox should
 be served by one worker at a time.
 
+## Hosted: Render + Supabase
+
+```
+        Render                                   Supabase
+┌──────────────────────────┐                  ┌────────────┐
+│  dashboard + API         │ ───────────────► │ PostgreSQL │
+│  one service, one origin │                  └─────▲──────┘
+└──────────────────────────┘                        │
+                                                    │ same database
+        operator machines (Windows)                 │
+┌──────────────────────────┐                        │
+│  worker + Chromium       │ ───────────────────────┘
+│  one per operator        │
+└──────────────────────────┘
+```
+
+The split is not arbitrary. Everything except the browser runs in the cloud;
+the browser runs where a person is sitting.
+
+**Why the worker is not on Render.** Connecting a mailbox means completing
+Google's sign-in — password, 2FA, sometimes a device prompt — in a real browser
+window. `connect()` in `packages/playwright/src/gmail-automation.service.ts`
+refuses to try when headless, and says so, because there is nobody in a
+datacentre to type into it. Google also challenges sign-ins from datacentre
+addresses far more aggressively than from a home connection.
+
+**Why one service, not two.** The auth cookies are `SameSite=Lax`. A dashboard
+served from a different host never sends them, so sign-in appears to succeed and
+every call after it returns 401. `WEB_DIST_DIR` makes the API serve the built
+dashboard, which also removes the CORS list and the baked-in `VITE_API_URL`.
+
+**Why a shared database works.** With `REDIS_URL` empty the queue is a table.
+Jobs are claimed with an atomic conditional update (`packages/queue`), so two
+machines can never take the same job. `WORKER_WORKSPACES` then keeps each
+operator to their own work.
+
+### 1. Supabase
+
+Create a project, then *Connect → ORMs → Prisma* and copy the **session pooler**
+URI — the pooler host on port 5432. Not the direct connection: it is IPv6-only
+on new projects and Render dials IPv4. The transaction pooler on 6543 works too
+but then needs `?pgbouncer=true`, and buys nothing for a long-running process.
+
+### 2. Render
+
+Push the repo, then *New → Blueprint* and pick `render.yaml`. It asks for:
+
+| | |
+|---|---|
+| `DATABASE_URL` | the Supabase string from step 1 |
+| `ENCRYPTION_KEY` | 64 hex characters — `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `APP_URL`, `API_URL`, `CORS_ORIGINS` | all three the service's own URL, no trailing slash |
+
+The last three are chicken-and-egg: Render only names the service once it
+exists. Deploy, copy the URL it gives you (`https://mailflow-xxxx.onrender.com`),
+paste it into all three, and redeploy. Anything else and the API refuses its own
+dashboard.
+
+The build runs `prisma db push`, so the schema is created on first deploy. There
+is no seeded account: the first person to open the URL registers at `/register`
+and gets their own workspace.
+
+### 3. One worker per operator
+
+Each person who connects their own Gmail runs the worker on their own machine.
+They need the repo, `npm install`, and a `.env`:
+
+```env
+DATABASE_PROVIDER=postgresql
+DATABASE_URL="<the same Supabase session-pooler string>"
+REDIS_URL=
+
+# Only this operator's workspace. Without it this worker would claim other
+# people's sends and fail them: the Gmail profile for their mailbox exists on
+# their machine, not this one.
+WORKER_WORKSPACES=<workspace id>
+
+GMAIL_DRIVER=playwright
+# false for the first connect of each mailbox - a window has to open for the
+# sign-in. It can go back to true afterwards; the profile is saved.
+PLAYWRIGHT_HEADLESS=false
+
+ENCRYPTION_KEY=<the same 64 hex characters as Render>
+JWT_SECRET=<anything: this process issues no tokens>
+SESSION_SECRET=<anything>
+```
+
+`ENCRYPTION_KEY` must match the one on Render exactly, or the worker cannot read
+the mailbox records the API wrote.
+
+Find the workspace id in the browser on the hosted dashboard — it is the
+`mf_workspace` cookie, or the `id` in the response to `GET /api/workspaces`.
+
+Then:
+
+```bash
+npm run prisma:generate   # once, to build the client for postgres
+npm run start:worker
+```
+
+It logs `scoped to 1 workspace(s): <id>` at startup. If it says *serving every
+workspace in the database* instead, `WORKER_WORKSPACES` did not reach it and it
+will take other people's jobs.
+
+Campaigns are launched from the hosted dashboard; the operator's worker picks
+them up within a poll interval and drives their own Gmail. Nothing is sent while
+their machine is off — the jobs simply wait in the table.
+
+### Known limits of this split
+
+- **Attachments do not reach a remote worker.** The API stores an upload on the
+  Render disk and the worker resolves it against its own `STORAGE_DIR`, so a
+  step with a file attached sends without it. Campaigns without attachments are
+  unaffected. Closing this needs an authenticated fetch from the worker back to
+  the API.
+- **The free instance type sleeps** after ~15 minutes idle and cannot mount a
+  disk. `render.yaml` uses `starter` for that reason; on free, uploads are also
+  wiped by every deploy.
+- **`prisma db push`, not migrations.** Fine for a fresh database, but move to
+  `prisma migrate` before there is data anyone would miss.
+
 ## Docker
 
 ```bash

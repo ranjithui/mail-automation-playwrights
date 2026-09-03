@@ -1,0 +1,139 @@
+# Render blueprint - dashboard + API on one service, Supabase for the database.
+# ============================================================================
+#
+# Deploy:  push this file, then Render -> New -> Blueprint.
+#
+# What runs here
+# --------------
+# The API process, which also serves the built dashboard (WEB_DIST_DIR). One
+# origin for both is not tidiness: the auth cookies are SameSite=Lax, so a
+# dashboard hosted anywhere else never sends them - sign-in appears to work and
+# every call after it returns 401. Same origin also means no CORS list to keep
+# in step with the service URL, and a WebSocket on the address the page is
+# already on.
+#
+# What does NOT run here
+# ----------------------
+# The worker, and therefore Chromium. Connecting a mailbox needs a person to
+# complete Google's sign-in in a real browser window, which nothing in a
+# datacentre can offer - see packages/playwright/src/gmail-automation.service.ts,
+# which fails fast and says so when headless. Each operator runs the worker on
+# their own machine instead, scoped to their workspace with WORKER_WORKSPACES,
+# and points it at this same Supabase database. The queue is a table, and jobs
+# are claimed with an atomic conditional update, so several machines can share
+# one database safely. See DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: mailflow
+    runtime: node
+    region: singapore # Put this near your Supabase project.
+
+    # Starter, not free: free instances sleep after ~15 minutes idle, and a disk
+    # cannot be mounted on them. Free is fine for a first look if you drop the
+    # disk block below and accept that uploads vanish on every deploy.
+    plan: starter
+
+    # VITE_API_URL is deliberately never set. Unset means the dashboard calls
+    # its own origin, which is exactly right here and cannot go stale when the
+    # service is renamed.
+    #
+    # prisma:push, not migrate deploy: this repo generates its schema from a
+    # template and ships no migration history. It is the right call for a fresh
+    # database and a test deployment; move to migrations before there is data
+    # anyone would miss.
+    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run prisma:push && npm run build --workspace @mail/web
+    startCommand: npm run start:api
+    healthCheckPath: /api/health
+
+    # Uploaded attachments live here. Without a disk they are wiped on every
+    # deploy, since a container's own filesystem does not survive one.
+    disk:
+      name: mailflow-storage
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+
+      # ------------------------------------------------------------ database
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      # Supabase -> Connect -> ORMs -> Prisma. Use the SESSION POOLER string
+      # (port 5432 on the pooler host), not the direct one: direct connections
+      # are IPv6-only on new projects and Render dials IPv4. The transaction
+      # pooler on 6543 also works but then needs ?pgbouncer=true, and buys
+      # nothing for a long-running process that holds its pool open.
+      - key: DATABASE_URL
+        sync: false
+
+      # No Redis. With REDIS_URL empty the queue is a table in Postgres, which
+      # is what lets a worker on someone's laptop share this database.
+      - key: REDIS_URL
+        value: ''
+
+      # ------------------------------------------------------------- network
+      # Render assigns the port; the app must listen on it rather than 4000.
+      - key: API_PORT
+        fromService:
+          type: web
+          name: mailflow
+          property: port
+
+      # Serve the dashboard from this process. Same origin, so no CORS.
+      - key: WEB_DIST_DIR
+        value: ./apps/web/dist
+
+      # This service's own public URL, with no trailing slash, in all three -
+      # e.g. https://mailflow-xxxx.onrender.com. Set by hand rather than with
+      # fromService/hostport, which yields a bare "host:port" with no scheme
+      # while these are parsed as full URLs and compared as origins.
+      - key: APP_URL
+        sync: false
+      - key: API_URL
+        sync: false
+      # Without this the API refuses its own dashboard: the default is
+      # localhost:5173. Same value as APP_URL.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # ------------------------------------------------------------- secrets
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+      # Not generateValue: this must be 64 hex characters. A generated value of
+      # another shape is stretched instead, which would silently make every
+      # stored mailbox credential unreadable if it ever changed.
+      #   openssl rand -hex 32
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      # ------------------------------------------------------------- storage
+      # On the disk mounted above, so uploads outlive a deploy. The session and
+      # screenshot directories are only used by a worker, which does not run
+      # here; they are set so nothing falls back to a container path by
+      # accident.
+      - key: STORAGE_DIR
+        value: /var/data/attachments
+      - key: SCREENSHOT_DIR
+        value: /var/data/screenshots
+      - key: PLAYWRIGHT_STORAGE_DIR
+        value: /var/data/sessions
+
+      # The npm 'playwright' package downloads Chromium on install. No browser
+      # is ever launched here, so skipping it saves ~150MB and a minute of
+      # build time. Remove this if you ever run the worker on this service.
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: '1'
+
+      # ------------------------------------------------------------------ ai
+      # 'local' is the built-in heuristic analyser - no key, no external call.
+      # Switch to openai/anthropic/gemini/groq and set AI_API_KEY to use one.
+      - key: AI_PROVIDER
+        value: local
+      - key: AI_API_KEY
+        sync: false
