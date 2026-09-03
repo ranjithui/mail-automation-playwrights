@@ -108,8 +108,19 @@ GMAIL_DRIVER=playwright
 PLAYWRIGHT_HEADLESS=false
 
 ENCRYPTION_KEY=<the same 64 hex characters as Render>
-JWT_SECRET=<anything: this process issues no tokens>
-SESSION_SECRET=<anything>
+
+# Where to post realtime events, so the hosted dashboard shows what this
+# worker is doing while it does it. Left unset it posts to localhost:4000 and
+# nothing reaches the browser.
+API_URL=https://<your-service>.onrender.com
+
+# Must match the value Render generated (Environment tab). The worker signs its
+# events with it and the API rejects any it cannot verify. Sends work either
+# way - only the live progress in the dashboard depends on it.
+SESSION_SECRET=<copy from Render>
+
+# Unused here: this process issues no tokens.
+JWT_SECRET=anything
 ```
 
 `ENCRYPTION_KEY` must match the one on Render exactly, or the worker cannot read
@@ -141,8 +152,11 @@ their machine is off — the jobs simply wait in the table.
   unaffected. Closing this needs an authenticated fetch from the worker back to
   the API.
 - **The free instance type sleeps** after ~15 minutes idle and cannot mount a
-  disk. `render.yaml` uses `starter` for that reason; on free, uploads are also
-  wiped by every deploy.
+  disk, which is what `render.yaml` currently selects. Sends are unaffected -
+  the worker reaches Supabase directly, and `publish()` treats an unreachable
+  API as advisory - but the dashboard takes ~30s to open after a quiet spell,
+  and uploaded files do not survive a deploy or a wake. Switch to `starter`
+  and restore the disk block when it stops being a test.
 - **`prisma db push`, not migrations.** Fine for a fresh database, but move to
   `prisma migrate` before there is data anyone would miss.
 

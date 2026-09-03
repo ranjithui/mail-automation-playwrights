@@ -29,10 +29,19 @@ services:
     runtime: node
     region: singapore # Put this near your Supabase project.
 
-    # Starter, not free: free instances sleep after ~15 minutes idle, and a disk
-    # cannot be mounted on them. Free is fine for a first look if you drop the
-    # disk block below and accept that uploads vanish on every deploy.
-    plan: starter
+    # Free, for testing. Two consequences worth knowing before something
+    # surprises you:
+    #
+    #   * It sleeps after ~15 minutes with no HTTP traffic, and the next request
+    #     waits ~30s for it to wake. Sends are unaffected - the worker talks to
+    #     Supabase directly, not through this service - but the dashboard is
+    #     slow to open after a quiet spell.
+    #   * No disk can be mounted, so the filesystem is wiped on every deploy and
+    #     every wake. See the storage note further down.
+    #
+    # Move to 'starter' and restore the disk block (below the build commands in
+    # git history) when this stops being a test.
+    plan: free
 
     # VITE_API_URL is deliberately never set. Unset means the dashboard calls
     # its own origin, which is exactly right here and cannot go stale when the
@@ -46,12 +55,7 @@ services:
     startCommand: npm run start:api
     healthCheckPath: /api/health
 
-    # Uploaded attachments live here. Without a disk they are wiped on every
-    # deploy, since a container's own filesystem does not survive one.
-    disk:
-      name: mailflow-storage
-      mountPath: /var/data
-      sizeGB: 1
+    # No disk: the free instance type cannot mount one.
 
     envVars:
       - key: NODE_ENV
@@ -113,16 +117,20 @@ services:
         sync: false
 
       # ------------------------------------------------------------- storage
-      # On the disk mounted above, so uploads outlive a deploy. The session and
-      # screenshot directories are only used by a worker, which does not run
-      # here; they are set so nothing falls back to a container path by
-      # accident.
+      # Container-local, and therefore EPHEMERAL on this plan: an attachment
+      # uploaded through the dashboard is gone after the next deploy or the next
+      # wake from sleep. The database rows survive - only the files go - so a
+      # campaign step still references a file that is no longer there.
+      #
+      # Attachments are the one feature to leave alone while testing on free.
+      # A disk (starter plan) fixes the loss, though a worker on someone else's
+      # machine still cannot read these files - see DEPLOYMENT.md.
       - key: STORAGE_DIR
-        value: /var/data/attachments
+        value: ./storage/attachments
       - key: SCREENSHOT_DIR
-        value: /var/data/screenshots
+        value: ./storage/screenshots
       - key: PLAYWRIGHT_STORAGE_DIR
-        value: /var/data/sessions
+        value: ./storage/sessions
 
       # The npm 'playwright' package downloads Chromium on install. No browser
       # is ever launched here, so skipping it saves ~150MB and a minute of
