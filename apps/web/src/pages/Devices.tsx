@@ -61,6 +61,26 @@ function Copyable({ value, label }: { value: string; label: string }) {
 }
 
 /**
+ * Numbered instructions inside a step.
+ *
+ * Spelled out rather than summarised: the person carrying these out is often
+ * not the person who built any of it, and every detail left implicit here comes
+ * back as a question that could have been answered on screen.
+ */
+function Howto({ items }: { items: React.ReactNode[] }) {
+  return (
+    <ol className="flex flex-col gap-1.5">
+      {items.map((item, index) => (
+        <li key={index} className="flex gap-2 text-sm text-muted-foreground">
+          <span className="font-mono text-xs leading-5 text-foreground">{index + 1}.</span>
+          <span className="flex-1">{item}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
  * One line of the setup checklist.
  *
  * `done` is derived from what the server actually reports rather than from
@@ -201,17 +221,44 @@ function SetupFlow({
               It holds the Gmail browser profiles. Nothing else needs installing.
             </p>
             {info?.downloadUrl ? (
-              <a
-                href={info.downloadUrl}
-                onClick={() => {
-                  localStorage.setItem(DOWNLOADED_KEY, '1');
-                  setDownloaded(true);
-                }}
-              >
-                <Button variant="outline">
-                  <Download className="size-4" /> Download the agent
+              <>
+                <a
+                  href={info.downloadUrl}
+                  onClick={() => {
+                    localStorage.setItem(DOWNLOADED_KEY, '1');
+                    setDownloaded(true);
+                  }}
+                >
+                  <Button variant="outline">
+                    <Download className="size-4" /> Download the agent
+                  </Button>
+                </a>
+                <p className="text-sm font-medium">Then, on that machine:</p>
+                <Howto
+                  items={[
+                    <>
+                      Find the downloaded file. It is usually in your{' '}
+                      <span className="font-medium">Downloads</span> folder, named{' '}
+                      <code className="font-mono text-xs">mailflow-agent-win32-x64.zip</code>.
+                    </>,
+                    <>
+                      Right-click it and choose <span className="font-medium">Extract All…</span>, then{' '}
+                      <span className="font-medium">Extract</span>.{' '}
+                      <span className="text-foreground">
+                        This part matters: opening the zip and double-clicking inside it will not work.
+                      </span>{' '}
+                      Windows shows you the files but has not really unpacked them.
+                    </>,
+                    <>
+                      A folder called <code className="font-mono text-xs">agent</code> appears. Leave it
+                      somewhere you can find again - the agent runs from that folder every time.
+                    </>,
+                  ]}
+                />
+                <Button variant="outline" onClick={() => setDownloaded(true)}>
+                  Done - it is unzipped
                 </Button>
-              </a>
+              </>
             ) : (
               <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3">
                 <p className="text-sm text-muted-foreground">
@@ -261,12 +308,37 @@ function SetupFlow({
                     </Button>
                   )}
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Open the agent on that machine. It asks for two things:
-                </p>
+                <Howto
+                  items={[
+                    <>
+                      In the <code className="font-mono text-xs">agent</code> folder, double-click{' '}
+                      <code className="font-mono text-xs">mailflow-agent.exe</code>.
+                    </>,
+                    <>
+                      If Windows says <span className="font-medium">&ldquo;Windows protected your PC&rdquo;</span>,
+                      click <span className="font-medium">More info</span>, then{' '}
+                      <span className="font-medium">Run anyway</span>. That warning appears for any program
+                      without a paid signing certificate - it is not a sign anything is wrong.
+                    </>,
+                    <>A black window opens, and a page opens in the browser with two boxes.</>,
+                    <>Into the first box, the server address:</>,
+                  ]}
+                />
                 <Copyable value={info?.serverUrl ?? window.location.origin} label="Server address" />
+                <Howto
+                  items={[
+                    <>
+                      Into the second box, the code above:{' '}
+                      <span className="font-mono font-medium text-foreground">{pairing.code}</span>
+                    </>,
+                    <>
+                      Click <span className="font-medium">Enrol this machine</span>.
+                    </>,
+                  ]}
+                />
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner className="size-3.5" /> Waiting for it to appear&hellip;
+                  <Spinner className="size-3.5" /> Waiting for it to appear here&hellip; this tick turns green
+                  by itself.
                 </p>
               </>
             ) : (
@@ -308,10 +380,22 @@ function SetupFlow({
           <Step index={5} done={connected} active={activeIndex === 4} title="Sign in to Gmail there">
             {bound ? (
               <>
-                <p className="text-sm text-muted-foreground">
-                  Press Connect on <span className="font-mono">{bound.email}</span> under Email accounts. A
-                  Chrome window opens <em>on that machine</em> for the sign-in.
-                </p>
+                <Howto
+                  items={[
+                    <>
+                      Open <span className="font-medium">Email accounts</span> in the menu on the left.
+                    </>,
+                    <>
+                      Find <span className="font-mono text-xs">{bound.email}</span> and press{' '}
+                      <span className="font-medium">Connect</span>.
+                    </>,
+                    <>
+                      A Chrome window opens <em>on the other machine</em>, not this one. Sign in to Gmail
+                      there as normal.
+                    </>,
+                    <>That is the last time anyone has to sign in - the session is remembered.</>,
+                  ]}
+                />
                 <p className="text-sm text-muted-foreground">
                   Currently <Badge tone="outline">{bound.connection.toLowerCase()}</Badge>
                 </p>
