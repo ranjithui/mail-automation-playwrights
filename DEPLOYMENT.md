@@ -107,6 +107,9 @@ GMAIL_DRIVER=playwright
 # sign-in. It can go back to true afterwards; the profile is saved.
 PLAYWRIGHT_HEADLESS=false
 
+# Only needed if you set an AI provider key in the hosted app: that is the one
+# thing this key protects, and only the API ever reads it back. It is listed
+# here so the two installs agree, not because the worker decrypts anything.
 ENCRYPTION_KEY=<the same 64 hex characters as Render>
 
 # Where to post realtime events, so the hosted dashboard shows what this
@@ -123,8 +126,10 @@ SESSION_SECRET=<copy from Render>
 JWT_SECRET=anything
 ```
 
-`ENCRYPTION_KEY` must match the one on Render exactly, or the worker cannot read
-the mailbox records the API wrote.
+Nothing about a mailbox is encrypted - a Gmail session is a browser profile on
+disk, not a stored credential - so a mismatched `ENCRYPTION_KEY` costs you
+nothing here. `WORKER_WORKSPACES` can also stay empty until a second workspace
+exists; with one workspace there is nothing to scope away from.
 
 Find the workspace id in the browser on the hosted dashboard — it is the
 `mf_workspace` cookie, or the `id` in the response to `GET /api/workspaces`.
