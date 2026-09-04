@@ -95,6 +95,57 @@ export async function processBrowserAction(job: JobRecord) {
   if (action === 'restart') await releaseMailbox(emailAccountId);
 
   return withMailbox(emailAccountId, async (driver) => {
+  /**
+   * Files everything this campaign has sent and not yet labelled.
+   *
+   * Scoped to the campaign's own recipients rather than to a time window: a
+   * window alone would sweep up anything else that left the mailbox meanwhile,
+   * including another campaign's mail and the operator's own.
+   *
+   * Chunked because Gmail's search box has a length limit and a query naming
+   * every contact of a large campaign would exceed it. Twenty-five addresses
+   * per search covers a fifty-result page in two, and the driver files each
+   * page in one trip through the labels menu.
+   */
+  if (action === 'label-sweep') {
+    const campaignId = String(job.payload.campaignId ?? '');
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, workspaceId: account.workspaceId },
+      select: { id: true, name: true, gmailLabel: true, createdAt: true },
+    });
+    if (!campaign?.gmailLabel) return { skipped: 'that campaign files nothing' };
+
+    const members = await prisma.campaignContact.findMany({
+      where: { campaignId: campaign.id },
+      select: { contact: { select: { email: true } } },
+    });
+    const addresses = [...new Set(members.map((m) => m.contact.email).filter(Boolean))];
+    if (!addresses.length) return { filed: 0, skipped: 'no contacts' };
+
+    // From the campaign's own start, so a re-run does not reach back over mail
+    // that predates it.
+    const since = Math.floor(campaign.createdAt.getTime() / 1000);
+
+    let filed = 0;
+    for (let at = 0; at < addresses.length; at += 25) {
+      const chunk = addresses.slice(at, at + 25);
+      // Gmail's OR, which is what braces mean in its search language.
+      const recipients = chunk.map((email) => `to:${email}`).join(' ');
+      filed += await driver.applyLabel(`in:sent {${recipients}} after:${since}`, campaign.gmailLabel);
+    }
+
+    await logActivity({
+      workspaceId: account.workspaceId,
+      emailAccountId,
+      campaignId: campaign.id,
+      action: 'campaign.labelled',
+      message: `${filed} conversation(s) filed under "${campaign.gmailLabel}"`,
+      status: filed ? 'SUCCESS' : 'INFO',
+    });
+
+    return { filed };
+  }
+
   // Read-only mailbox search. Returns the result rows without opening
   // anything, which is what the label and bounce paths both rely on.
   if (action === 'search') {

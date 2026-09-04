@@ -13,7 +13,7 @@
  */
 import { createLogger } from '@mail/config';
 import { prisma } from '@mail/database';
-import { JobError, type JobRecord } from '@mail/queue';
+import { JobError, enqueue, type JobRecord } from '@mail/queue';
 import {
   advanceAfterSend,
   broadcastProgress,
@@ -292,32 +292,29 @@ export async function processSend(job: JobRecord) {
       result = isDraftMode ? await driver.saveDraft(request) : await driver.sendMessage(request);
     }
 
-      // Filing is best-effort, and deliberately last. The message has already
-      // gone; a labels menu that misbehaves must not turn a delivered email
-      // into a failed job that gets retried and sent again.
+      // Filing is queued, not done here.
+      //
+      // Opening the labels menu costs twenty to thirty seconds, and doing it
+      // once per message spent longer filing than sending. One sweep files a
+      // whole page of results in a single trip through that menu, so a batch of
+      // fifty costs one. The key buckets by five minutes, which is what turns a
+      // burst of sends into one sweep rather than one each, and the delay lets
+      // the batch drain first.
+      //
+      // Deliberately after the send and never able to fail it: the message has
+      // already gone, and a label is bookkeeping.
       if (campaign.gmailLabel && !result.isDraft) {
-        try {
-          const subject = threadSubject.replace(/["\\]/g, '').trim();
-          const filed = await driver.applyLabel(
-            // `after:` in Unix seconds, not `newer_than:1d`. The same subject goes
-            // to the same contact every time a campaign is re-run, so a day-wide
-            // window matched yesterday's conversation as readily as the message
-            // just sent - and Gmail, ranking by relevance, offered the older one
-            // first. One send filed a day-old thread and left itself unlabelled
-            // while the check, searching the same window, said it had worked.
-            `in:sent to:${contact.email} subject:"${subject}" after:${Math.floor(
-              (Date.now() - 10 * 60_000) / 1000,
-            )}`,
-            campaign.gmailLabel,
-          );
-          if (!filed) log.warn(`could not file ${contact.email} under ${campaign.gmailLabel}`);
-        } catch (error) {
-          log.warn(
-            `labelling ${contact.email} as ${campaign.gmailLabel} failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
+        await enqueue({
+          workspaceId: campaign.workspaceId,
+          queue: 'browser-worker',
+          name: `label:${campaign.name}`,
+          payload: { emailAccountId: account.id, action: 'label-sweep', campaignId: campaign.id },
+          runAt: new Date(Date.now() + 60_000),
+          dedupeKey: `label-sweep:${campaign.id}:${Math.floor(Date.now() / 300_000)}`,
+          maxAttempts: 2,
+        }).catch((error: unknown) => {
+          log.warn(`could not queue labelling for ${campaign.name}: ${String(error)}`);
+        });
       }
 
       return { result, threadSubject };

@@ -85,6 +85,17 @@ const SIGN_IN_WAIT_MS = 5 * 60_000;
  */
 const PROFILE_RELEASE_MS = 1500;
 
+/** Results Gmail puts on one page, and therefore what one tick selects. */
+const GMAIL_PAGE_SIZE = 50;
+
+/**
+ * How many pages one filing run will work through.
+ *
+ * Six covers three hundred conversations, which is more than a send batch
+ * produces, and bounds the action when something stops it making progress.
+ */
+const MAX_LABEL_PASSES = 6;
+
 /**
  * How one label appears in the labels menu.
  *
@@ -1733,162 +1744,200 @@ export class GmailAutomationService implements MailboxDriver {
   }
 
   /**
-   * Does Gmail itself now return this message under this label?
+   * Files every conversation matching a Gmail search under `label`, creating
+   * the label on first use. Returns how many were filed.
    *
-   * Asking Gmail is the only answer worth having. Everything up to here is a
-   * sequence of clicks that can each appear to work while filing nothing.
-   */
-  private async isFiledUnder(query: string, label: string): Promise<boolean> {
-    try {
-      await this.search(`label:"${label.replace(/"/g, '')}" ${query}`);
-      return Boolean(await this.firstVisible(this.page.locator('tr.zA')));
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Files the newest conversation matching a Gmail search under `label`,
-   * creating the label on first use. Returns how many were filed (0 or 1).
+   * Works a page at a time. Gmail shows fifty results and its header checkbox
+   * selects that page, so fifty conversations cost one trip through the labels
+   * menu rather than fifty. Each pass then repeats the same search with
+   * `-label:` appended: what was just filed drops out, the next fifty arrive
+   * on page one, and there is no pagination to drive. Running it twice is
+   * therefore harmless, and a run interrupted halfway resumes by itself.
    *
-   * Works from the results list and never opens a conversation. Opening one is
-   * the least reliable thing this driver does - it depends on Gmail's SPA
-   * router resolving a thread id in the URL - and the send path has already
-   * run the very search that finds the message, so there is nothing to gain by
-   * navigating into it.
+   * Never opens a conversation. Opening one is the least reliable thing this
+   * driver does - it depends on Gmail's SPA router resolving a thread id in
+   * the URL - and everything here can be done from the results list.
    */
   async applyLabel(query: string, label: string): Promise<number> {
     return this.act('applyLabel', async () => {
-      // Gmail does not always have a just-sent message in its search index by
-      // the time the send returns, so the first search can legitimately come
-      // back empty. That used to end the action quietly - the mail went out
-      // and nothing was ever filed - so the search is retried before giving
-      // up, and giving up now leaves a screenshot behind.
-      let box: any = null;
-      for (let attempt = 0; attempt < 3 && !box; attempt += 1) {
-        if (attempt > 0) await sleep(3000);
-        await this.search(query);
-        box = await this.firstVisible(this.page.locator('tr.zA [role="checkbox"]'));
-      }
-      if (!box) {
-        await this.screenshot('applyLabel-no-match');
-        log.warn(`nothing visible matched "${truncate(query, 80)}" - nothing to file under ${label}`);
-        return 0;
-      }
+      const remaining = `${query} -label:"${label.replace(/"/g, '')}"`;
+      let filed = 0;
+      let previous = -1;
 
-      // One click, not one per row. Ticking each row individually meant up to
-      // twenty-five four-second clicks, which on its own overran the whole
-      // action's budget before the labels menu was ever reached.
-      // Only the newest match is filed, never the whole result set. A search
-      // meant to find one message can still return a page of them - the same
-      // subject goes to many contacts - and select-all would file all fifty.
-      if (!(await this.tick(box))) {
-        await this.screenshot('applyLabel-no-select');
-        log.warn(`could not select a row to file under ${label}`);
-        return 0;
-      }
-      const selected = 1;
-      // Gmail swaps the toolbar into selection mode after the tick; nothing
-      // that acts on a message exists until it has.
-      await sleep(1200);
-
-      // A click that lands on the row's hover overlay instead of the checkbox
-      // looks like a successful tick and selects nothing, which is how the
-      // labels menu came to be opened with no message under it. The box says
-      // whether it actually took.
-      const ticked = await box.getAttribute('aria-checked').catch(() => null);
-      if (ticked !== 'true' && !(await this.tick(box))) {
-        await this.screenshot('applyLabel-no-select');
-        log.warn(`row did not stay selected - not filing under ${label}`);
-        return 0;
-      }
-
-      // Labels sits on the toolbar only when the window is wide enough. It is
-      // usually inside "More" instead, so both routes are tried.
-      let menuOpen = false;
-      try {
-        const direct = await this.resolve(SELECTORS.labelsButton, 2500);
-        await direct.click();
-        menuOpen = true;
-      } catch {
-        log.debug('no Labels button on the toolbar - going through the More menu');
-      }
-      if (!menuOpen) {
-        const more = await this.resolve(SELECTORS.moreOptionsButton, 6000);
-        await more.click();
-        await sleep(700);
-        const labelAs = await this.resolve(SELECTORS.labelAsMenuItem, 6000);
-        await labelAs.click();
-      }
-      await sleep(700);
-
-      const search = await this.resolve(SELECTORS.labelSearchInput, 6000);
-      await search.click();
-      await search.fill(label);
-      await sleep(700);
-
-      // The label's own row is what files the mail. "Create new" sits at the
-      // foot of this menu whatever is typed, so treating its presence as "the
-      // label does not exist yet" sent every send down the create path: Gmail
-      // answered "that label already exists", nothing was filed, and the
-      // action still reported success. The row is the only honest test.
-      const row = await this.labelRow(label);
-
-      if (row) {
-        if ((await row.getAttribute('aria-checked').catch(() => null)) !== 'true') {
-          await this.tick(row);
-          await sleep(500);
+      for (let pass = 0; pass < MAX_LABEL_PASSES; pass += 1) {
+        // A just-sent message is not always in Gmail's index yet, so an empty
+        // first search is not proof there is nothing to do. Later passes are
+        // the opposite: coming back empty is exactly how this finishes.
+        let rows = 0;
+        for (let attempt = 0; attempt < (pass === 0 ? 3 : 1) && !rows; attempt += 1) {
+          if (attempt > 0) await sleep(3000);
+          await this.search(remaining);
+          rows = await this.visibleRowCount();
         }
-        // Some Gmail builds commit the moment the row is ticked and close the
-        // menu; others wait for Apply. Click Apply when it is there and never
-        // fail for its absence - a missing button is not proof of a missing
-        // label, and the check below is what actually decides.
-        if (await this.exists(SELECTORS.labelApply, 1500)) {
-          const apply = await this.resolve(SELECTORS.labelApply, 3000);
-          await apply.click().catch(() => undefined);
-        } else {
-          await this.page.keyboard.press('Escape').catch(() => undefined);
+
+        if (!rows) {
+          if (pass === 0) {
+            await this.screenshot('applyLabel-no-match');
+            log.warn(`nothing matched "${truncate(remaining, 80)}" - nothing to file under ${label}`);
+          }
+          break;
         }
-      } else if (!(await this.exists(SELECTORS.labelCreateNew, 2500))) {
-        // Neither the label's row nor a way to create one. Gmail withholds
-        // "Create new" when a label of that name already exists, so this is
-        // what an unmatched existing label looks like from here - and throwing
-        // a selector error for it hides the only useful fact, which is what
-        // the menu was actually offering.
-        await this.screenshot('applyLabel-no-row');
-        const offered = await this.visibleLabelNames();
-        log.warn(
-          `gmail offered no row for "${label}" and no way to create it. The menu showed: ` +
-            (offered.length ? offered.map((name) => JSON.stringify(name)).join(', ') : '(nothing)'),
-        );
-        return 0;
-      } else {
-        const create = await this.resolve(SELECTORS.labelCreateNew, 4000);
-        await create.click();
-        await sleep(900);
-        // Gmail prefills the dialog from the filter box, but not always - an
-        // empty name leaves Create inert and the dialog open.
-        const name = await this.firstVisible(this.page.locator('div[role="dialog"] input[type="text"]'));
-        if (name && !(await name.inputValue().catch(() => ''))) await name.fill(label);
-        const confirm = await this.resolve(SELECTORS.labelCreateConfirm, 6000);
-        await confirm.click();
-      }
-      await sleep(1800);
 
-      // Proof, not optimism. Every failure so far was silent - the menu was
-      // driven, something was clicked, and `1` came back while the mailbox had
-      // no such label on the message. Gmail's own index is the arbiter.
-      if (!(await this.isFiledUnder(query, label))) {
-        await this.screenshot('applyLabel-not-filed');
-        log.warn(`gmail does not show ${truncate(query, 60)} under ${label}`);
-        return 0;
+        // The same count twice means the label is not sticking, and the search
+        // that excludes it keeps returning the same page. Five more passes
+        // would drive the menu five more times for nothing.
+        if (rows === previous) {
+          await this.screenshot('applyLabel-no-progress');
+          log.warn(`${rows} conversation(s) still unfiled after applying ${label} - stopping`);
+          break;
+        }
+        previous = rows;
+
+        if (!(await this.selectVisibleRows())) {
+          await this.screenshot('applyLabel-no-select');
+          log.warn(`could not select the results to file under ${label}`);
+          break;
+        }
+
+        if (!(await this.fileSelectionUnder(label))) break;
+
+        filed += rows;
+        log.info(`filed ${rows} conversation(s) under ${label}`);
+
+        // A page that was not full is the last page.
+        if (rows < GMAIL_PAGE_SIZE) break;
       }
 
-      this.report('applyLabel', `filed ${selected} thread(s) under ${label}`);
-      return selected;
+      if (filed) this.report('applyLabel', `filed ${filed} thread(s) under ${label}`);
+      return filed;
       // Filing is best-effort and the caller carries on without it, so a
       // failure is reported once rather than retried at twice the cost.
-    }, { retries: 0, timeoutMs: 90_000 });
+    }, { retries: 0, timeoutMs: 240_000 });
+  }
+
+  /** How many result rows are actually on screen. */
+  private async visibleRowCount(): Promise<number> {
+    return this.page
+      .locator('tr.zA')
+      .evaluateAll((nodes: any[], visibleSrc: string) => {
+        // No named functions in here - esbuild rewrites them into a `__name()`
+        // helper that does not exist inside the page.
+        const isVisible = (0, eval)(visibleSrc);
+        return nodes.filter((node) => isVisible(node)).length;
+      }, GmailAutomationService.VISIBLE_TEST)
+      .catch(() => 0);
+  }
+
+  /**
+   * Ticks the header checkbox, selecting every result on the page.
+   *
+   * Falls back to the first row's own checkbox: a header that will not take is
+   * still worth one message rather than none.
+   */
+  private async selectVisibleRows(): Promise<boolean> {
+    try {
+      const all = await this.resolve(SELECTORS.selectAllCheckbox, 4000);
+      if (await this.tick(all)) {
+        // Gmail swaps the toolbar into selection mode once something is
+        // selected, and nothing that acts on a message exists until it has.
+        await sleep(1200);
+        const checked = await this.page
+          .locator('tr.zA [role="checkbox"][aria-checked="true"]')
+          .count()
+          .catch(() => 0);
+        if (checked > 0) return true;
+      }
+    } catch {
+      log.debug('no select-all checkbox on the toolbar - falling back to the first row');
+    }
+
+    // A click that lands on the row's hover overlay instead of the checkbox
+    // looks like a successful tick and selects nothing, which is how the labels
+    // menu came to be opened with no message under it.
+    const first = await this.firstVisible(this.page.locator('tr.zA [role="checkbox"]'));
+    if (!first || !(await this.tick(first))) return false;
+    await sleep(1200);
+    return (await first.getAttribute('aria-checked').catch(() => null)) === 'true';
+  }
+
+  /**
+   * Drives the labels menu over whatever is currently selected.
+   *
+   * Returns false when it could not be made to file anything, having already
+   * said why.
+   */
+  private async fileSelectionUnder(label: string): Promise<boolean> {
+    // Labels sits on the toolbar only when the window is wide enough. It is
+    // usually inside "More" instead, so both routes are tried.
+    let menuOpen = false;
+    try {
+      const direct = await this.resolve(SELECTORS.labelsButton, 2500);
+      await direct.click();
+      menuOpen = true;
+    } catch {
+      log.debug('no Labels button on the toolbar - going through the More menu');
+    }
+    if (!menuOpen) {
+      const more = await this.resolve(SELECTORS.moreOptionsButton, 6000);
+      await more.click();
+      await sleep(700);
+      const labelAs = await this.resolve(SELECTORS.labelAsMenuItem, 6000);
+      await labelAs.click();
+    }
+    await sleep(700);
+
+    const search = await this.resolve(SELECTORS.labelSearchInput, 6000);
+    await search.click();
+    await search.fill(label);
+    await sleep(700);
+
+    // The label's own row is what files the mail. "Create new" sits at the foot
+    // of this menu whatever is typed, so its presence says nothing about
+    // whether the label exists - the row is the only honest test.
+    const row = await this.labelRow(label);
+
+    if (row) {
+      if ((await row.getAttribute('aria-checked').catch(() => null)) !== 'true') {
+        await this.tick(row);
+        await sleep(500);
+      }
+      // Some Gmail builds commit the moment the row is ticked and close the
+      // menu; others wait for Apply. Click Apply when it is there and never
+      // fail for its absence - a missing button is not proof of a missing
+      // label, and the next pass is what actually decides.
+      if (await this.exists(SELECTORS.labelApply, 1500)) {
+        const apply = await this.resolve(SELECTORS.labelApply, 3000);
+        await apply.click().catch(() => undefined);
+      } else {
+        await this.page.keyboard.press('Escape').catch(() => undefined);
+      }
+    } else if (!(await this.exists(SELECTORS.labelCreateNew, 2500))) {
+      // Neither the label's row nor a way to create one. Gmail withholds
+      // "Create new" when a label of that name already exists, so this is what
+      // an unmatched existing label looks like from here - and throwing a
+      // selector error for it hides the only useful fact, which is what the
+      // menu was actually offering.
+      await this.screenshot('applyLabel-no-row');
+      const offered = await this.visibleLabelNames();
+      log.warn(
+        `gmail offered no row for "${label}" and no way to create it. The menu showed: ` +
+          (offered.length ? offered.map((name) => JSON.stringify(name)).join(', ') : '(nothing)'),
+      );
+      return false;
+    } else {
+      const create = await this.resolve(SELECTORS.labelCreateNew, 4000);
+      await create.click();
+      await sleep(900);
+      // Gmail prefills the dialog from the filter box, but not always - an
+      // empty name leaves Create inert and the dialog open.
+      const name = await this.firstVisible(this.page.locator('div[role="dialog"] input[type="text"]'));
+      if (name && !(await name.inputValue().catch(() => ''))) await name.fill(label);
+      const confirm = await this.resolve(SELECTORS.labelCreateConfirm, 6000);
+      await confirm.click();
+    }
+
+    await sleep(1800);
+    return true;
   }
 
   async markAsRead(gmailThreadId: string): Promise<void> {
