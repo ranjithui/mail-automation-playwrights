@@ -202,6 +202,20 @@ Playwright's own Chromium, which saves every operator a 150MB download and
 gives Google a browser it recognises. `PLAYWRIGHT_BROWSER_CHANNEL` controls
 this; empty falls back to a downloaded Chromium.
 
+It also writes `dist/mailflow-agent-<platform>-<arch>.zip`. Publish that and
+point `AGENT_DOWNLOAD_URL` at it, and the Devices page offers a Download button
+inside a five-step checklist that ticks itself off as the machine enrols, takes
+a mailbox and signs in. Left empty, the same checklist explains how to build one
+instead of showing a button that goes nowhere.
+
+```bash
+gh release create agent-v2026-09-04 dist/mailflow-agent-win32-x64.zip --notes "MailFlow agent"
+```
+
+The executable has to be built on the kind of machine it runs on - a Linux build
+host cannot produce the Windows one - which is why it is published as a release
+asset rather than served by the API.
+
 To check a machine before trusting it with a mailbox:
 
 ```

@@ -37,7 +37,19 @@ const EXTERNAL = ['playwright', 'playwright-core'];
 
 const exeName = process.platform === 'win32' ? 'mailflow-agent.exe' : 'mailflow-agent';
 
-fs.rmSync(out, { recursive: true, force: true });
+// Windows keeps a running executable locked, and rebuilding while the agent is
+// open is the normal way to hit that. Retried briefly, then explained - the raw
+// EPERM names a path and not the reason.
+try {
+  fs.rmSync(out, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+} catch (error) {
+  if (error.code !== 'EPERM' && error.code !== 'EBUSY') throw error;
+  console.error(
+    `[agent] cannot replace dist/agent - something is using it.${String.fromCharCode(10)}` +
+      `        Close ${exeName} (and any Chrome it opened) and run this again.`,
+  );
+  process.exit(1);
+}
 fs.mkdirSync(work, { recursive: true });
 
 // ------------------------------------------------------------------- bundle
@@ -177,6 +189,37 @@ sign-in. Complete it yourself; the session is remembered afterwards.
 
 fs.rmSync(work, { recursive: true, force: true });
 
+// ---------------------------------------------------------------- publishable
+
+/**
+ * Zipped here rather than by hand, because the thing that gets uploaded should
+ * be the thing that was just built. Windows ships bsdtar, which writes a zip
+ * when the extension says so; everywhere else has `zip`.
+ */
+const archive = path.join(root, 'dist', `mailflow-agent-${process.platform}-${process.arch}.zip`);
+fs.rmSync(archive, { force: true });
+
+say('zipping');
+try {
+  const dist = path.join(root, 'dist');
+  const name = path.basename(archive);
+  // Run from dist with relative names throughout. bsdtar, which is what
+  // Windows ships, reads an absolute path like C:\\... as host:path and tries
+  // to resolve "C" as a machine name.
+  if (process.platform === 'win32') {
+    execFileSync('tar', ['-a', '-c', '-f', name, 'agent'], { cwd: dist, stdio: 'inherit' });
+  } else {
+    execFileSync('zip', ['-qr', name, 'agent'], { cwd: dist, stdio: 'inherit' });
+  }
+} catch (error) {
+  say(`could not create the zip (${error.message}) - the folder itself is still complete`);
+}
+
 const size = (fs.statSync(exePath).size / 1024 / 1024).toFixed(0);
 say(`done - dist/agent/${exeName} (${size}MB)`);
-say('zip dist/agent and hand it to whoever runs the mailboxes');
+if (fs.existsSync(archive)) {
+  const zipped = (fs.statSync(archive).size / 1024 / 1024).toFixed(0);
+  say(`archive - ${path.relative(root, archive)} (${zipped}MB)`);
+  say('publish it, then point AGENT_DOWNLOAD_URL at it so the Devices page can offer it:');
+  say(`  gh release create agent-v${new Date().toISOString().slice(0, 10)} "${archive}" --notes "MailFlow agent"`);
+}

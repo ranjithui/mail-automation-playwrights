@@ -73,6 +73,16 @@ const schema = z.object({
    * them and every call after an apparently successful sign-in returns 401.
    */
   WEB_DIST_DIR: z.string().default(''),
+  /**
+   * Where operators download the packaged agent from.
+   *
+   * Empty by default, and the Devices page then explains how to build it rather
+   * than offering a button that goes nowhere. It is a URL rather than a file
+   * this service holds because the executable has to be built on the platform
+   * it runs on - a Linux build host cannot produce the Windows one - so it is
+   * published as a release asset and pointed at from here.
+   */
+  AGENT_DOWNLOAD_URL: z.string().trim().default(''),
 
   GMAIL_DRIVER: z.enum(['simulation', 'playwright']).default('simulation'),
   /**

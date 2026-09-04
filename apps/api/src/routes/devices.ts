@@ -10,6 +10,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
+import { env } from '@mail/config';
 import { prisma } from '@mail/database';
 import { generatePairingCode, logActivity } from '@mail/core';
 import { AppError, handler, ok } from '../lib/http.js';
@@ -57,6 +58,25 @@ deviceRouter.post(
 
     return ok(res, { code, expiresAt: expiresAt.toISOString(), expiresInSeconds: CODE_TTL_MS / 1000 }, undefined, 201);
   }),
+);
+
+/**
+ * What a new machine needs to know, so the dashboard can walk somebody through
+ * setting one up without them reading any documentation.
+ *
+ * Declared before '/:id' routes would be, since a literal path and a parameter
+ * that both match '/agent-info' resolve in declaration order.
+ */
+deviceRouter.get(
+  '/agent-info',
+  handler(async (_req, res) =>
+    ok(res, {
+      downloadUrl: env.AGENT_DOWNLOAD_URL || null,
+      // The address the agent is asked for on its first run. Taken from the
+      // server's own configuration so it cannot drift from what actually works.
+      serverUrl: env.APP_URL,
+    }),
+  ),
 );
 
 deviceRouter.get(

@@ -101,6 +101,13 @@ services:
       - key: WEB_DIST_DIR
         value: ./apps/web/dist
 
+      # Where the Devices page sends people to download the agent. It cannot be
+      # built here - a Linux build host cannot produce a Windows executable - so
+      # it is built on the machine it targets, published as a release asset, and
+      # pointed at from here. Empty means the page explains how to build one.
+      - key: AGENT_DOWNLOAD_URL
+        sync: false
+
       # This service's own public URL, with no trailing slash, in all three -
       # e.g. https://mailflow-xxxx.onrender.com. Set by hand rather than with
       # fromService/hostport, which yields a bare "host:port" with no scheme
