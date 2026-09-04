@@ -33,7 +33,7 @@ const work = path.join(out, '.build');
 const say = (message) => console.log(`[agent] ${message}`);
 
 /** Packages copied whole, because bundling them breaks how they find files. */
-const EXTERNAL = ['playwright', 'playwright-core'];
+const SHIPPED_ALONGSIDE = ['playwright', 'playwright-core'];
 
 const exeName = process.platform === 'win32' ? 'mailflow-agent.exe' : 'mailflow-agent';
 
@@ -63,10 +63,33 @@ await build({
   target: 'node22',
   // CommonJS, because that is what a single executable can hold today.
   format: 'cjs',
-  external: EXTERNAL,
+  external: [],
   define: {
     'import.meta.url': '__agentMetaUrl',
   },
+  plugins: [
+    {
+      name: 'playwright-beside-the-executable',
+      setup(build) {
+        build.onResolve({ filter: /^playwright$/ }, () => ({
+          path: 'playwright',
+          namespace: 'from-exe',
+        }));
+        build.onLoad({ filter: /.*/, namespace: 'from-exe' }, () => ({
+          contents: [
+            "const { createRequire } = require('node:module');",
+            "const { dirname, join } = require('node:path');",
+            // A file path rather than a directory: createRequire resolves
+            // relative to the file it is given, and a directory without a
+            // trailing separator is read as one.
+            "const near = createRequire(join(dirname(process.execPath), 'index.js'));",
+            "module.exports = near('playwright');",
+          ].join(String.fromCharCode(10)),
+          loader: 'js',
+        }));
+      },
+    },
+  ],
   // Settings are injected here rather than shipped as a .env beside the
   // executable. @mail/config resolves its storage paths from its own module
   // location, which inside a single executable is the executable itself - so
@@ -149,7 +172,7 @@ function copyPackage(name, seen = new Set()) {
 }
 
 say('copying playwright');
-for (const name of EXTERNAL) copyPackage(name);
+for (const name of SHIPPED_ALONGSIDE) copyPackage(name);
 
 fs.writeFileSync(
   path.join(out, 'README.txt'),
