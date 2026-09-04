@@ -86,6 +86,16 @@ const SIGN_IN_WAIT_MS = 5 * 60_000;
 const PROFILE_RELEASE_MS = 1500;
 
 /**
+ * How one label appears in the labels menu.
+ *
+ * More than one shape because Gmail's builds disagree: `menuitemcheckbox` is
+ * the modern one, `J-LC` the class it has carried for years, and the plain
+ * menuitem is what remains when neither is present. Matching is by the row's
+ * own text, so a looser shape cannot select the wrong label.
+ */
+const ROW_SHAPES = ['[role="menuitemcheckbox"]', 'div.J-LC', '[role="menu"] [role="menuitem"]'] as const;
+
+/**
  * Budget for a whole compose-and-send. The default action timeout covers a
  * single interaction; a send is a dozen of them plus a confirmation wait, and
  * when the two shared one 30s budget the deadline fired after Gmail had already
@@ -1671,18 +1681,55 @@ export class GmailAutomationService implements MailboxDriver {
    * because Gmail gives these rows none: they are `menuitemcheckbox` elements
    * whose only identity is what they say.
    */
-  private async labelRow(label: string): Promise<any | null> {
+  private async labelRow(label: string, timeoutMs = 5000): Promise<any | null> {
     const wanted = label.trim().toLowerCase();
-    const rows = this.page.locator('[role="menuitemcheckbox"]');
-    const count = await rows.count().catch(() => 0);
+    const deadline = Date.now() + timeoutMs;
 
-    for (let i = 0; i < Math.min(count, 40); i += 1) {
-      const row = rows.nth(i);
-      if (!(await row.isVisible().catch(() => false))) continue;
-      const text = ((await row.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
-      if (text.toLowerCase() === wanted) return row;
-    }
+    // Retried rather than read once. Typing in the filter box makes Gmail
+    // re-render the list, and a single scan taken immediately afterwards sees
+    // the old rows on their way out and the new ones not yet in - so an
+    // existing label reads as absent. That sent every send after the first
+    // down the "create it" path, where Gmail hides "Create new" precisely
+    // because the label already exists, and the action died on a selector.
+    do {
+      for (const shape of ROW_SHAPES) {
+        const rows = this.page.locator(shape);
+        const count = await rows.count().catch(() => 0);
+
+        for (let i = 0; i < Math.min(count, 60); i += 1) {
+          const row = rows.nth(i);
+          if (!(await row.isVisible().catch(() => false))) continue;
+          const text = ((await row.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+          if (text.toLowerCase() === wanted) return row;
+        }
+      }
+      await sleep(300);
+    } while (Date.now() < deadline);
+
     return null;
+  }
+
+  /**
+   * Every label name the open menu is currently offering.
+   *
+   * Only used when nothing matched, to say what was on screen instead - the
+   * difference between "Gmail did not offer that label" and a name that
+   * differs from the campaign's by a character nobody can see.
+   */
+  private async visibleLabelNames(): Promise<string[]> {
+    const names: string[] = [];
+    for (const shape of ROW_SHAPES) {
+      const rows = this.page.locator(shape);
+      const count = await rows.count().catch(() => 0);
+      for (let i = 0; i < Math.min(count, 40); i += 1) {
+        const row = rows.nth(i);
+        if (!(await row.isVisible().catch(() => false))) continue;
+        const text = ((await row.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+        if (text) names.push(text);
+      }
+      if (names.length) break;
+    }
+    return [...new Set(names)];
   }
 
   /**
@@ -1802,6 +1849,19 @@ export class GmailAutomationService implements MailboxDriver {
         } else {
           await this.page.keyboard.press('Escape').catch(() => undefined);
         }
+      } else if (!(await this.exists(SELECTORS.labelCreateNew, 2500))) {
+        // Neither the label's row nor a way to create one. Gmail withholds
+        // "Create new" when a label of that name already exists, so this is
+        // what an unmatched existing label looks like from here - and throwing
+        // a selector error for it hides the only useful fact, which is what
+        // the menu was actually offering.
+        await this.screenshot('applyLabel-no-row');
+        const offered = await this.visibleLabelNames();
+        log.warn(
+          `gmail offered no row for "${label}" and no way to create it. The menu showed: ` +
+            (offered.length ? offered.map((name) => JSON.stringify(name)).join(', ') : '(nothing)'),
+        );
+        return 0;
       } else {
         const create = await this.resolve(SELECTORS.labelCreateNew, 4000);
         await create.click();
