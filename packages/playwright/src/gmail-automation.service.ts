@@ -304,6 +304,9 @@ export class GmailAutomationService implements MailboxDriver {
           headless: env.PLAYWRIGHT_HEADLESS,
           slowMo: env.PLAYWRIGHT_SLOWMO_MS,
           viewport: { width: 1440, height: 900 },
+          // Empty means Playwright's bundled Chromium. Set to "chrome" the
+          // machine's own install is driven instead - see the config comment.
+          ...(env.PLAYWRIGHT_BROWSER_CHANNEL ? { channel: env.PLAYWRIGHT_BROWSER_CHANNEL } : {}),
           args: ['--disable-blink-features=AutomationControlled'],
         });
 

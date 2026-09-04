@@ -182,20 +182,55 @@ Plus `GET /api/agent/files/:name`, which is how an agent reads an attachment
 it is about to send - and which also closes the gap where a remote machine
 could not see files the API had stored.
 
+### Building the executable
+
+```bash
+npm run build:agent
+```
+
+Produces `dist/agent/` - about 107MB, holding `mailflow-agent.exe`, the
+Playwright packages beside it, and a readme. Zip that folder and it runs on a
+machine with no Node, no repository and no npm.
+
+The executable *is* node: esbuild flattens the agent into one CommonJS file and
+Node's single-executable support injects it into a copy of the node binary.
+Playwright is copied alongside rather than bundled, because it finds its driver
+and browser registry from paths relative to its own package directory.
+
+It drives the **Chrome already installed** on the machine rather than
+Playwright's own Chromium, which saves every operator a 150MB download and
+gives Google a browser it recognises. `PLAYWRIGHT_BROWSER_CHANNEL` controls
+this; empty falls back to a downloaded Chromium.
+
+To check a machine before trusting it with a mailbox:
+
+```
+mailflow-agent.exe --check
+```
+
+which reports whether Playwright loads, whether Chrome launches (with its
+version), and whether this machine is enrolled.
+
 ### Enrolling a machine
 
 1. Dashboard → **Devices** → **Add device**. A pairing code appears, good for
    ten minutes and one use.
-2. On the machine that will run the browsers:
+2. On the machine that will run the browsers, either double-click
+   `mailflow-agent.exe` or, from a checkout:
 
    ```bash
    npm run start:agent
    ```
 
-   It asks for the server URL and the code, then saves a device token to the
-   user profile directory - `%APPDATA%/MailFlow Agent/agent.json` on Windows,
+   A small panel opens in the browser asking for the server address and the
+   code. The device token is then saved to the user profile directory -
+   `%APPDATA%/MailFlow Agent/agent.json` on Windows,
    `~/.config/mailflow-agent/agent.json` elsewhere. Not to `.env`: that file
    belongs to the server and carries database credentials.
+
+   The same panel stays up afterwards as a status window: which mailboxes are
+   open, and the last dozen operations with how long each took. It lives on
+   127.0.0.1 only.
 3. Back in **Devices**, bind a mailbox to the machine.
 4. **Email accounts → Connect.** A Chromium window opens *on that machine* for
    the sign-in. Set `PLAYWRIGHT_HEADLESS=false` there or the sign-in cannot be

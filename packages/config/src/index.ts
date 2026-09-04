@@ -85,6 +85,16 @@ const schema = z.object({
   /** Consecutive sync failures before a mailbox stops being polled. */
   INBOX_SYNC_FAILURE_LIMIT: z.coerce.number().int().min(1).default(3),
   PLAYWRIGHT_HEADLESS: bool(true),
+  /**
+   * Which browser build to drive. Empty means Playwright's own Chromium, which
+   * is what a checkout gets from `playwright install`.
+   *
+   * "chrome" drives the Google Chrome already on the machine instead. That is
+   * how the packaged agent ships: it saves a 150MB download on every operator's
+   * machine, and Google treats a real Chrome install more kindly than a fresh
+   * automation build it has never seen sign in before.
+   */
+  PLAYWRIGHT_BROWSER_CHANNEL: z.string().trim().default(''),
   PLAYWRIGHT_SLOWMO_MS: z.coerce.number().int().min(0).default(0),
   PLAYWRIGHT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(30000),
   /**

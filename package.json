@@ -3,7 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "description": "Enterprise Mail Automation SaaS - React/Vite + Node.js + Prisma + Queue + Playwright + AI Inbox",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -26,6 +28,7 @@
     "start:api": "tsx apps/api/src/index.ts",
     "start:worker": "tsx apps/worker/src/index.ts",
     "start:agent": "tsx apps/agent/src/index.ts",
+    "build:agent": "node scripts/build-agent.mjs",
     "build": "npm run prisma:generate && npm run build --workspace @mail/web",
     "preview": "npm run preview --workspace @mail/web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -43,6 +46,7 @@
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
     "concurrently": "^9.1.0",
+    "postject": "^1.0.0-alpha.6",
     "prisma": "^6.2.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
