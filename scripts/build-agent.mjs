@@ -203,13 +203,26 @@ say('zipping');
 try {
   const dist = path.join(root, 'dist');
   const name = path.basename(archive);
-  // Run from dist with relative names throughout. bsdtar, which is what
-  // Windows ships, reads an absolute path like C:\\... as host:path and tries
-  // to resolve "C" as a machine name.
+
   if (process.platform === 'win32') {
-    execFileSync('tar', ['-a', '-c', '-f', name, 'agent'], { cwd: dist, stdio: 'inherit' });
+    // Not `tar -a`, which Windows' bsdtar honours for gzip but not for zip: it
+    // writes the entries stored, producing an archive fractionally LARGER than
+    // the folder. That matters because the executable is mostly the node binary,
+    // which deflates by about 60% - the difference between an upload that fits
+    // inside a hosting tier's file size limit and one that does not.
+    const quote = (value) => "'" + value.split("'").join("''") + "'";
+    execFileSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Compress-Archive -Path ${quote(path.join(dist, 'agent'))} -DestinationPath ${quote(archive)} -CompressionLevel Optimal -Force`,
+      ],
+      { stdio: 'inherit' },
+    );
   } else {
-    execFileSync('zip', ['-qr', name, 'agent'], { cwd: dist, stdio: 'inherit' });
+    execFileSync('zip', ['-9qr', name, 'agent'], { cwd: dist, stdio: 'inherit' });
   }
 } catch (error) {
   say(`could not create the zip (${error.message}) - the folder itself is still complete`);
