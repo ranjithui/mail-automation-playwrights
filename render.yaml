@@ -51,7 +51,12 @@ services:
     # template and ships no migration history. It is the right call for a fresh
     # database and a test deployment; move to migrations before there is data
     # anyone would miss.
-    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run check:db && npm run prisma:push && npm run build --workspace @mail/web
+    # NODE_ENV=development for the install step only: the service runs with
+    # NODE_ENV=production, and npm reads that as "omit dev dependencies" - which
+    # would leave out tsx, vite and prisma, every one of which the build needs.
+    # Setting it here rather than passing --include=dev keeps this working
+    # whatever npm does to its flags next.
+    buildCommand: NODE_ENV=development npm ci && npm run prisma:generate && npm run check:db && npm run prisma:push && npm run build --workspace @mail/web
     startCommand: npm run start:api
     healthCheckPath: /api/health
 
