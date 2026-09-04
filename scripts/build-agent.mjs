@@ -179,6 +179,9 @@ fs.writeFileSync(
   `MailFlow Agent
 ==============
 
+Built for ${process.platform}/${process.arch}. Everything in this folder belongs
+together - the executable will not start on its own.
+
 Double-click ${exeName}.
 
 A window opens asking for the server address and a pairing code. Get the code
@@ -219,7 +222,7 @@ fs.rmSync(work, { recursive: true, force: true });
  * be the thing that was just built. Windows ships bsdtar, which writes a zip
  * when the extension says so; everywhere else has `zip`.
  */
-const archive = path.join(root, 'dist', `mailflow-agent-${process.platform}-${process.arch}.zip`);
+const archive = path.join(root, 'dist', 'mailflow-agent.zip');
 fs.rmSync(archive, { force: true });
 
 say('zipping');
@@ -256,6 +259,7 @@ say(`done - dist/agent/${exeName} (${size}MB)`);
 if (fs.existsSync(archive)) {
   const zipped = (fs.statSync(archive).size / 1024 / 1024).toFixed(0);
   say(`archive - ${path.relative(root, archive)} (${zipped}MB)`);
+  say('it holds the whole agent folder - the executable alone will not run');
   say('publish it, then point AGENT_DOWNLOAD_URL at it so the Devices page can offer it:');
   say(`  gh release create agent-v${new Date().toISOString().slice(0, 10)} "${archive}" --notes "MailFlow agent"`);
 }
