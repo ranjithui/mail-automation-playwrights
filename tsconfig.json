@@ -7,6 +7,7 @@
   "include": [
     "apps/api/src/**/*.ts",
     "apps/worker/src/**/*.ts",
+    "apps/agent/src/**/*.ts",
     "packages/*/src/**/*.ts",
     "prisma/seed.ts",
     "scripts/**/*.mjs"

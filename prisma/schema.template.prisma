@@ -91,6 +91,8 @@ model Workspace {
   aiSuggestions AIReplySuggestion[]
   aiAnalyses    AIAnalysis[]
   settings      SystemSetting[]
+  devices       Device[]
+  pairingCodes  PairingCode[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -160,17 +162,26 @@ model EmailAccount {
   lastErrorCode   String?
   lastError       String?
   secretsJson     String?
+  /**
+   * The machine holding this mailbox's browser profile, when it is driven by a
+   * remote agent. Null means the in-process worker drives it, exactly as it
+   * always has - which is what lets both modes run side by side.
+   */
+  deviceId        String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
-  sessions  EmailSession[]
-  campaigns Campaign[]
-  threads   EmailThread[]
+  sessions   EmailSession[]
+  campaigns  Campaign[]
+  threads    EmailThread[]
+  agentTasks AgentTask[]
 
   @@unique([workspaceId, email])
   @@index([workspaceId])
+  @@index([deviceId])
 }
 
 model EmailSession {
@@ -195,6 +206,89 @@ model EmailSession {
 // ===========================================================================
 // Contacts
 // ===========================================================================
+
+// ===========================================================================
+// Remote agents
+//
+// A device is a machine running the agent: it holds Gmail browser profiles and
+// nothing else. It never receives database credentials, so everything it is
+// allowed to do arrives as an AgentTask addressed to it, and everything it is
+// allowed to see is bounded by its workspace.
+// ===========================================================================
+
+model Device {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  name         String
+  platform     String    @default("unknown")
+  /**
+   * SHA-256 of the bearer token. The token itself is shown once, at enrolment,
+   * and never stored - a leaked database row must not yield a working device.
+   */
+  tokenHash    String    @unique
+  agentVersion String?
+  lastSeenAt   DateTime?
+  /** Set to disable the device. Its next poll or heartbeat answers 401. */
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  emailAccounts EmailAccount[]
+  tasks         AgentTask[]
+
+  @@index([workspaceId])
+}
+
+model PairingCode {
+  id          String    @id @default(cuid())
+  workspaceId String
+  /** Short enough to retype, so `attempts` exists to make guessing pointless. */
+  code        String    @unique
+  createdById String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+/**
+ * One driver call, crossing the wire.
+ *
+ * The server's processors keep calling MailboxDriver methods; against a remote
+ * mailbox each call becomes a row here, and the agent that owns the mailbox
+ * leases it, runs it against a real browser, and writes the answer back.
+ *
+ * `op` is the interface method name and `argsJson` its arguments, so adding an
+ * operation to the driver needs no change to the protocol.
+ */
+model AgentTask {
+  id             String    @id @default(cuid())
+  deviceId       String
+  emailAccountId String
+  op             String
+  argsJson       String    @default("{}")
+  status         String    @default("PENDING")
+  /** When a leased task is considered abandoned and fails. */
+  leaseExpiresAt DateTime?
+  resultJson     String?
+  errorCode      String?
+  error          String?
+  screenshotId   String?
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  emailAccount EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, status])
+  @@index([emailAccountId, status])
+}
 
 model Contact {
   id                 String    @id @default(cuid())

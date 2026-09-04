@@ -20,6 +20,7 @@ import { ContactListsPage } from '@/pages/contacts/ContactListsPage';
 import { SuppressionPage } from '@/pages/contacts/SuppressionPage';
 import { TemplatesPage } from '@/pages/Templates';
 import { EmailAccountsPage } from '@/pages/EmailAccounts';
+import { DevicesPage } from '@/pages/Devices';
 import { InboxPage } from '@/pages/Inbox';
 import { AIInboxPage } from '@/pages/AIInbox';
 import { AutomationPage, JobsPage, LogsPage } from '@/pages/Automation';
@@ -121,6 +122,7 @@ export default function App() {
                   <Route path="templates" element={<TemplatesPage />} />
                   <Route path="email-accounts" element={<EmailAccountsPage />} />
                   <Route path="email-accounts/:id" element={<EmailAccountsPage />} />
+                  <Route path="devices" element={<DevicesPage />} />
 
                   <Route path="inbox" element={<InboxPage />} />
                   <Route path="ai-inbox" element={<AIInboxPage />} />

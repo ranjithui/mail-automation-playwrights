@@ -149,6 +149,89 @@ Campaigns are launched from the hosted dashboard; the operator's worker picks
 them up within a poll interval and drives their own Gmail. Nothing is sent while
 their machine is off — the jobs simply wait in the table.
 
+## Agents
+
+An agent is the same idea as the worker above, with the database connection
+taken away. It holds Gmail browser profiles and nothing else: it asks the
+server for work over HTTPS, does it, and reports back. No database credential
+reaches the machine, no port is opened on it, and access is revoked with one
+button rather than by rotating a password everywhere.
+
+Use this rather than a worker per operator whenever the machines are not all
+yours.
+
+### How it hangs together
+
+The server's processors are unchanged. They still call `MailboxDriver`
+methods; for a mailbox bound to a device, `acquireMailbox` hands them a
+`RemoteMailboxDriver` instead of a Chromium one, and each call becomes an
+`AgentTask` row that the agent leases, runs and answers. The operation name
+and its arguments are the payload, so adding a driver method needs no protocol
+change.
+
+Four endpoints carry all of it:
+
+| | |
+|---|---|
+| `POST /api/agent/enrol` | pairing code in, device token out. The only unauthenticated one |
+| `GET /api/agent/work` | long-poll, held 25s, leases one operation |
+| `POST /api/agent/work/:id` | report it done or failed |
+| `POST /api/agent/heartbeat` | liveness and mailbox status |
+
+Plus `GET /api/agent/files/:name`, which is how an agent reads an attachment
+it is about to send - and which also closes the gap where a remote machine
+could not see files the API had stored.
+
+### Enrolling a machine
+
+1. Dashboard → **Devices** → **Add device**. A pairing code appears, good for
+   ten minutes and one use.
+2. On the machine that will run the browsers:
+
+   ```bash
+   npm run start:agent
+   ```
+
+   It asks for the server URL and the code, then saves a device token to the
+   user profile directory - `%APPDATA%/MailFlow Agent/agent.json` on Windows,
+   `~/.config/mailflow-agent/agent.json` elsewhere. Not to `.env`: that file
+   belongs to the server and carries database credentials.
+3. Back in **Devices**, bind a mailbox to the machine.
+4. **Email accounts → Connect.** A Chromium window opens *on that machine* for
+   the sign-in. Set `PLAYWRIGHT_HEADLESS=false` there or the sign-in cannot be
+   completed.
+
+### Rules worth knowing
+
+- **One mailbox, one device.** Its browser profile exists on exactly one
+  machine, so only that machine is offered work for it.
+- **Leases expire** - five minutes for ordinary operations, fifteen for
+  `connect`, which waits on a person. This is deliberately shorter than
+  `JOB_TIMEOUT_MS`, so a laptop that goes to sleep fails its operation before
+  the queue's own watchdog fires.
+- **Revoking is immediate**: the device gets 401 on its next poll, at most one
+  hold away. Its mailboxes return to the in-process worker and anything queued
+  for it fails at once rather than one timeout at a time.
+- **Nothing changes for mailboxes without a device.** They are driven by the
+  worker exactly as before, which is what makes moving one mailbox at a time
+  possible.
+
+### Moving the worker to the server
+
+While you still run a worker locally, that worker creates the agent tasks and
+everything works. The end state is different: once every mailbox belongs to a
+device, the worker belongs on Render, and `render.yaml` should start both
+processes:
+
+```yaml
+startCommand: npm start   # API and worker together
+```
+
+Do that only after the last mailbox is bound to a device, and stop the local
+worker at the same time. Two workers against one database is safe - claiming is
+atomic - but a server-side worker will try to launch Chromium for any mailbox
+that has no device, and there is no browser there to launch.
+
 ### Known limits of this split
 
 - **Attachments do not reach a remote worker.** The API stores an upload on the

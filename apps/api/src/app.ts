@@ -16,6 +16,8 @@ import { contactRouter } from './routes/contacts.js';
 import { attachmentRouter, templateRouter } from './routes/templates.js';
 import { campaignRouter } from './routes/campaigns.js';
 import { emailAccountRouter } from './routes/email-accounts.js';
+import { deviceRouter } from './routes/devices.js';
+import { agentRouter } from './routes/agent.js';
 import { inboxRouter } from './routes/inbox.js';
 import { aiRouter } from './routes/ai.js';
 import { dashboardRouter } from './routes/dashboard.js';
@@ -99,6 +101,10 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/workspaces', workspaceRouter);
   app.use('/api/email-accounts', emailAccountRouter);
+  app.use('/api/devices', deviceRouter);
+  // Agents authenticate with a device token, not a user session, so this
+  // router deliberately sits outside the cookie/workspace middleware.
+  app.use('/api/agent', agentRouter);
   app.use('/api/contacts', contactRouter);
   app.use('/api/templates', templateRouter);
   app.use('/api/attachments', attachmentRouter);

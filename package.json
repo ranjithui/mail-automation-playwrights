@@ -25,6 +25,7 @@
     "start": "concurrently -n API,WORKER -c blue,magenta \"npm:start:api\" \"npm:start:worker\"",
     "start:api": "tsx apps/api/src/index.ts",
     "start:worker": "tsx apps/worker/src/index.ts",
+    "start:agent": "tsx apps/agent/src/index.ts",
     "build": "npm run prisma:generate && npm run build --workspace @mail/web",
     "preview": "npm run preview --workspace @mail/web",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -11,6 +11,7 @@ import { prisma } from '@mail/database';
 import { GmailAutomationService, SimulationGmailService } from '@mail/playwright';
 import type { MailboxDriver, MailboxIdentity } from '@mail/playwright';
 import { publish } from './realtime.js';
+import { RemoteMailboxDriver } from './remote-mailbox.js';
 
 const log = createLogger('mailbox');
 
@@ -68,8 +69,15 @@ export async function acquireMailbox(accountId: string): Promise<MailboxDriver> 
     },
   };
 
-  const driver: MailboxDriver =
-    env.GMAIL_DRIVER === 'playwright'
+  // The one place that decides where a mailbox is actually driven.
+  //
+  // A mailbox bound to a device is driven by the agent on that machine, which
+  // is the only place its Gmail profile exists; everything else runs a browser
+  // in this process exactly as it always has. Both modes coexist, so moving a
+  // mailbox to an agent is a single nullable column and not a migration.
+  const driver: MailboxDriver = account.deviceId
+    ? new RemoteMailboxDriver(identity, account.deviceId, events)
+    : env.GMAIL_DRIVER === 'playwright'
       ? new GmailAutomationService(identity, events)
       : new SimulationGmailService(identity, events);
 

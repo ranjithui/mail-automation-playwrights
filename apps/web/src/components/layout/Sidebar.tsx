@@ -11,6 +11,7 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
+  Laptop,
   Mail,
   Megaphone,
   Settings,
@@ -85,6 +86,7 @@ const NAV: Array<{ section: string | null; items: NavItem[] }> = [
     section: 'Operations',
     items: [
       { label: 'Email accounts', to: '/email-accounts', icon: Mail },
+      { label: 'Devices', to: '/devices', icon: Laptop },
       {
         label: 'Automation',
         to: '/automation',

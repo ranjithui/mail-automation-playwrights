@@ -2,6 +2,7 @@ export * from './realtime.js';
 export * from './activity.js';
 export * from './suppression.js';
 export * from './mailbox.js';
+export * from './remote-mailbox.js';
 export * from './sequence.js';
 export * from './campaign.js';
 export * from './inbox-sync.js';
