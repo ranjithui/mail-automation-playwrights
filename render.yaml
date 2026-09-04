@@ -51,7 +51,7 @@ services:
     # template and ships no migration history. It is the right call for a fresh
     # database and a test deployment; move to migrations before there is data
     # anyone would miss.
-    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run prisma:push && npm run build --workspace @mail/web
+    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run check:db && npm run prisma:push && npm run build --workspace @mail/web
     startCommand: npm run start:api
     healthCheckPath: /api/health
 
@@ -60,6 +60,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Pinned. "engines": { "node": ">=20" } lets Render take the newest Node
+      # in existence - it picked 26.8.1 - which is a variable nobody chose and
+      # nothing was tested against. 24 is what this is developed on.
+      - key: NODE_VERSION
+        value: '24'
       - key: LOG_LEVEL
         value: info
 

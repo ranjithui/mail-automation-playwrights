@@ -13,6 +13,7 @@
     "prisma:prepare": "node scripts/prepare-prisma.mjs",
     "prisma:generate": "npm run prisma:prepare && prisma generate",
     "prisma:push": "npm run prisma:prepare && prisma db push --skip-generate",
+    "check:db": "node scripts/check-database-url.mjs",
     "prisma:migrate": "npm run prisma:prepare && prisma migrate dev",
     "prisma:studio": "npm run prisma:prepare && prisma studio",
     "db:seed": "tsx prisma/seed.ts",
